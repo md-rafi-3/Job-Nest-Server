@@ -1,12 +1,44 @@
 const express= require('express')
 const cors=require('cors')
 const app=express()
+const jwt=require('jsonwebtoken')
+const cookieParser=require("cookie-parser");
 const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 //middleware
-app.use(cors());
+app.use(cors({
+    origin:['http://localhost:5173'],
+    credentials:true
+}
+));
 app.use(express.json());
+app.use(cookieParser())
+
+
+const logger=(req,res,next)=>{
+  console.log("inside the logger middleware")
+  next();
+}
+
+const verifyToken=(req,res,next)=>{
+  const token=req.cookies?.token;
+  console.log("cookie in the middleware",token)
+  if(!token){
+    return res.status(401).send({message:"Unauthorize access"})
+  }
+
+  // veryfy token
+  jwt.verify(token,process.env.JWT_ACCESS_SECRET,(error,decoded)=>{
+    if(error){
+      return res.status(401).send({message:"Unauthorize access"})
+    }
+    req.decoded=decoded;
+    console.log(decoded)
+  })
+  // 
+  next()
+}
 
 
 
@@ -34,6 +66,23 @@ async function run() {
     // jobs api
     const jobsCollections=client.db('Career-code').collection('jobs');
     const applicationsCollections=client.db('Career-code').collection('applications');
+
+
+      // jwt token related api
+    app.post("/jwt",async(req,res)=>{
+      const {email}=req.body;
+      const user={email}
+
+      const token=jwt.sign(user,process.env.JWT_ACCESS_SECRET,{expiresIn:'1d'});
+
+      // set token in the cookies
+      res.cookie('token',token,{
+        httpOnly: true,
+        secure:false
+      })
+      res.send({success:true})
+    })
+
 
 
     // app.get('/jobs',async(req,res)=>{
@@ -93,6 +142,7 @@ async function run() {
       res.send(result)
     })
 
+  
 
 
     // job application api
@@ -103,6 +153,10 @@ async function run() {
       const result=await applicationsCollections.insertOne(application);
       res.send(result)
     })
+
+
+
+    
 
     app.get("/applications/job/:job_id",async(req,res)=>{
       const job_id=req.params.job_id;
@@ -130,8 +184,13 @@ async function run() {
     
     
 
-    app.get("/applications",async(req,res)=>{
+    app.get("/applications",logger,verifyToken, async(req,res)=>{
       const email=req.query.email;
+
+      console.log("inside application api",req.cookies)
+      if(email !==req.decoded.email){
+        return res.status(401).send({message:"Unauthorize access"})
+      }
       const query={
         email:email
       }
